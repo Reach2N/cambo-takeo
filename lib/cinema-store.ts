@@ -481,7 +481,7 @@ export const useCinemaStore = create<CinemaState>()(
       onRehydrateStorage: () => (state) => {
         if (state) {
           // Check localStorage TTL — if older than 24 hours, clear stale data
-          const persistedAt = (state as Record<string, unknown>)._persistedAt as number | undefined;
+          const persistedAt = (state as unknown as Record<string, unknown>)._persistedAt as number | undefined;
           const TTL = 24 * 60 * 60 * 1000; // 24 hours
           if (persistedAt && Date.now() - persistedAt > TTL) {
             // Stale data — reset to empty so initializeFromSupabase re-fetches
