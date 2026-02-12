@@ -10,6 +10,7 @@ import { VoteButton } from "@/components/vote-button";
 import type { Movie, Showtime } from "@/lib/mock-data";
 import { useRef, useState, useMemo, memo } from "react";
 import { useI18n } from "@/lib/i18n";
+import { isPlaceholderImage } from "@/lib/utils";
 
 interface MovieCardProps {
   movie: Movie;
@@ -19,17 +20,11 @@ interface MovieCardProps {
   linkDate?: string;
 }
 
-function isNAValue(val: string | undefined | null): boolean {
-  if (!val || !val.trim()) return true;
-  const trimmed = val.trim().toUpperCase();
-  return trimmed === "NA" || trimmed === "N/A";
-}
-
 function SafeImage({ src, alt, className, noBackdrop, ...props }: { src: string; alt: string; fill?: boolean; className?: string; sizes?: string; width?: number; height?: number; noBackdrop?: boolean }) {
   const [error, setError] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const { t } = useI18n();
-  if (error || !src || noBackdrop || isNAValue(src)) {
+  if (error || isPlaceholderImage(src) || noBackdrop) {
     return (
       <div className="absolute inset-0 bg-secondary flex flex-col items-center justify-center gap-2 p-4">
         <Film className="w-8 h-8 text-muted-foreground/40" />
@@ -86,7 +81,7 @@ export const MovieCard = memo(function MovieCard({ movie, showtimes = [], index 
               src={movie.posterUrl}
               alt={movie.title}
               fill
-              noBackdrop={!movie.backdropUrl}
+              noBackdrop={isPlaceholderImage(movie.backdropUrl)}
               className="object-cover group-hover:scale-[1.06] transition-transform duration-700 ease-out"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
             />

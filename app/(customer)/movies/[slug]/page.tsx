@@ -4,11 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Clock, Play, Ticket, Calendar, CalendarDays, Film } from "lucide-react";
+import { ArrowLeft, Clock, Play, Ticket, Calendar, CalendarDays, Film, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { SpotlightCard } from "@/components/ui/spotlight-card";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { VoteButton } from "@/components/vote-button";
 import {
   formatDate,
   formatPrice,
@@ -20,12 +22,13 @@ import { getYouTubeThumbnail } from "@/lib/tmdb";
 import { isShowtimeUpcoming } from "@/lib/calendar-utils";
 import { useState, useEffect, useMemo } from "react";
 import { useI18n } from "@/lib/i18n";
+import { isPlaceholderImage } from "@/lib/utils";
 
 function SafeImage({ src, alt, noBackdrop, ...props }: { src: string; alt: string; fill?: boolean; className?: string; priority?: boolean; width?: number; height?: number; quality?: number; noBackdrop?: boolean }) {
   const [error, setError] = useState(false);
   const { t } = useI18n();
 
-  if (error || !src || noBackdrop) {
+  if (error || isPlaceholderImage(src) || noBackdrop) {
     return (
       <div className="absolute inset-0 bg-secondary flex flex-col items-center justify-center gap-2">
         <Film className="w-12 h-12 text-muted-foreground/30" />
@@ -51,6 +54,25 @@ export default function MovieDetailPage() {
 
   const [showTrailer, setShowTrailer] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  const allShowtimes = useMemo(() =>
+    movie ? getStoreShowtimesForMovie(storeShowtimes, movie.id) : [],
+    [storeShowtimes, movie]);
+
+  const upcomingShowtimes = useMemo(() =>
+    allShowtimes
+      .filter((s) => isShowtimeUpcoming(s.date, s.time))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)),
+    [allShowtimes]);
+
+  const showtimesByDate = useMemo(() => {
+    const map: Record<string, typeof upcomingShowtimes> = {};
+    upcomingShowtimes.forEach((st) => {
+      if (!map[st.date]) map[st.date] = [];
+      map[st.date].push(st);
+    });
+    return map;
+  }, [upcomingShowtimes]);
 
   // Auto-scroll to date section from homepage selection
   useEffect(() => {
@@ -86,35 +108,16 @@ export default function MovieDetailPage() {
       </motion.div>
     );
   }
-
-  const allShowtimes = useMemo(() =>
-    getStoreShowtimesForMovie(storeShowtimes, movie.id),
-  [storeShowtimes, movie.id]);
-
-  const upcomingShowtimes = useMemo(() =>
-    allShowtimes
-      .filter((s) => isShowtimeUpcoming(s.date, s.time))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)),
-  [allShowtimes]);
-
-  const showtimesByDate = useMemo(() => {
-    const map: Record<string, typeof upcomingShowtimes> = {};
-    upcomingShowtimes.forEach((st) => {
-      if (!map[st.date]) map[st.date] = [];
-      map[st.date].push(st);
-    });
-    return map;
-  }, [upcomingShowtimes]);
   const youtubeId = movie.trailerUrl ? extractYouTubeId(movie.trailerUrl) : null;
 
-  // Prefer movie's own backdrop, fall back to YouTube thumbnail
-  const backdropImage = movie.backdropUrl
-    || (youtubeId ? getYouTubeThumbnail(youtubeId) : "");
+  // Prefer movie's own backdrop (if valid), fall back to YouTube thumbnail
+  const isBackdropPlaceholder = isPlaceholderImage(movie.backdropUrl);
+  const backdropImage = !isBackdropPlaceholder && movie.backdropUrl
+    ? movie.backdropUrl
+    : (youtubeId ? getYouTubeThumbnail(youtubeId) : "");
 
-  // Check if we have a valid backdrop (not empty, not "NA")
-  const hasBackdrop = backdropImage &&
-    backdropImage.trim() !== "" &&
-    !["NA", "N/A", "na", "n/a"].includes(backdropImage.trim());
+  // Check if we have a valid backdrop
+  const hasBackdrop = !isPlaceholderImage(backdropImage);
 
   // Check if we have a valid synopsis
   const hasSynopsis = movie.synopsis &&
@@ -290,20 +293,31 @@ export default function MovieDetailPage() {
           </div>
         </div>
 
-        {/* Synopsis — hidden when empty or "NA" */}
+        {/* Synopsis — accordion reveal */}
         {hasSynopsis && (
           <BlurFade delay={0.2} className="mt-8">
-            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-foreground mb-2">
-              {t("movie.synopsis")}
-            </h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">{movie.synopsis}</p>
-            {movie.synopsisKh &&
-              movie.synopsisKh.trim() !== "" &&
-              !["NA", "N/A", "na", "n/a"].includes(movie.synopsisKh.trim()) && (
-              <p className="font-[family-name:var(--font-khmer)] text-sm text-muted-foreground leading-relaxed mt-2">
-                {movie.synopsisKh}
-              </p>
-            )}
+            <Accordion type="single" collapsible>
+              <AccordionItem value="synopsis" className="border-border/50">
+                <AccordionTrigger className="py-3 hover:no-underline group/trigger">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-primary" />
+                    <span className="font-[family-name:var(--font-display)] text-lg font-semibold text-foreground">
+                      {t("movie.synopsis")}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="text-sm text-muted-foreground leading-relaxed">
+                  <p>{movie.synopsis}</p>
+                  {movie.synopsisKh &&
+                    movie.synopsisKh.trim() !== "" &&
+                    !["NA", "N/A", "na", "n/a"].includes(movie.synopsisKh.trim()) && (
+                      <p className="font-[family-name:var(--font-khmer)] mt-3">
+                        {movie.synopsisKh}
+                      </p>
+                    )}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </BlurFade>
         )}
 
@@ -376,14 +390,12 @@ export default function MovieDetailPage() {
         {movie.status === "coming_soon" && (
           <BlurFade delay={0.3} className="mt-10 mb-16 text-center py-8">
             <p className="text-muted-foreground text-sm mb-3">{t("movie.comingSoonMsg")}</p>
-            <p className="font-[family-name:var(--font-mono)] text-sm text-primary font-medium">
-              {t("movie.release")}{" "}
-              {new Date(movie.releaseDate).toLocaleDateString("en", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
+            <p className="font-[family-name:var(--font-mono)] text-sm text-primary font-medium mb-4">
+              {t("movie.pleaseVote")}
             </p>
+            <div className="flex justify-center">
+              <VoteButton movieId={movie.id} />
+            </div>
           </BlurFade>
         )}
       </motion.div>

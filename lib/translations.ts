@@ -64,7 +64,9 @@ export const translations = {
   "movie.noScheduleMonth": { km: "មិនមានភាពយន្តគ្រោងចាក់បញ្ចាំងសម្រាប់ខែនេះទេ។", en: "No movies scheduled up to this month.", zh: "截至本月暂无电影安排。" },
   "movie.comingSoonMsg": { km: "ភាពយន្តនេះនឹងមកដល់ឆាប់ៗ!", en: "This movie is coming soon!", zh: "这部电影即将上映！" },
   "movie.release": { km: "ថ្ងៃចាក់បញ្ចាំង:", en: "Release:", zh: "上映日期:" },
-
+  "movie.pleaseVote": { km: "សូមចុច ❤️ ដើម្បី admin ដឹងថានឹងមានអ្នកមើលរឿងដើម្បីដាក់បញ្ចាំង", en: "Please vote ❤️ for admin to add movie", zh: "请为 admin 投票以添加电影" },
+  "movie.readMore": { km: "អានបន្ថែម", en: "Read more", zh: "展开" },
+  "movie.showLess": { km: "បង្រួម", en: "Show less", zh: "收起" },
   // ── Booking Flow ──
   "booking.step1": { km: "ជ្រើសកៅអី", en: "Select Seats", zh: "选座" },
   "booking.step2": { km: "ការទូទាត់", en: "Payment", zh: "支付" },

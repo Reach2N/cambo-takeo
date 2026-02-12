@@ -106,6 +106,7 @@ export default function HomePage() {
   const storeShowtimes = useCinemaStore((s) => s.showtimes);
   const votes = useCinemaStore((s) => s.votes);
   const hasHydrated = useCinemaStore((s) => s._hasHydrated);
+  const supabaseReady = useCinemaStore((s) => s._supabaseReady);
 
   // Tab state — initialize from URL hash
   const [activeTab, setActiveTab] = useState<"now" | "soon">(() => {
@@ -226,7 +227,10 @@ export default function HomePage() {
     return map;
   }, [storeShowtimes]);
 
-  if (!hasHydrated) {
+  // Show skeleton while:
+  // 1. localStorage hasn't hydrated yet, OR
+  // 2. No cached data and still waiting for Supabase (new user on deployed server)
+  if (!hasHydrated || (storeMovies.length === 0 && !supabaseReady)) {
     return <HomepageLoadingSkeleton />;
   }
 

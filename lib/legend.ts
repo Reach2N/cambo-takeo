@@ -93,7 +93,7 @@ export function mapLegendToMovie(legend: LegendMovie) {
     title: legend.title,
     titleKh: "", // Legend doesn't always have Khmer titles in this field
     posterUrl: legend.bannerImageUrl,
-    backdropUrl: legend.backdropImageUrl || legend.bannerImageUrl,
+    backdropUrl: legend.backdropImageUrl || "",
     trailerUrl: legend.trailerUrl,
     trailerKey: trailerYouTubeId ?? "",
     duration: legend.runTime,
