@@ -1,172 +1,183 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { DollarSign, TrendingUp, Ticket, CreditCard, QrCode, Banknote } from "lucide-react";
-import {
-  bookings,
-  revenueData,
-  getMovieById,
-  formatPrice,
-} from "@/lib/mock-data";
+import { DollarSign, TrendingUp, Ticket } from "lucide-react";
+import { formatPrice } from "@/lib/mock-data";
+import { useCinemaStore, getStoreMovieById } from "@/lib/cinema-store";
+import { useI18n } from "@/lib/i18n";
+import { Badge } from "@/components/ui/badge";
 
 export default function AdminRevenuePage() {
-  const confirmedBookings = bookings.filter((b) => b.status === "confirmed");
+  const storeMovies = useCinemaStore((s) => s.movies);
+  const storeShowtimes = useCinemaStore((s) => s.showtimes);
+  const { t } = useI18n();
 
-  const todayRevenue = confirmedBookings.reduce((sum, b) => sum + b.totalPrice, 0);
-  const weekRevenue = revenueData.reduce((sum, d) => sum + d.revenue, 0);
-  const monthRevenue = weekRevenue * 3.8;
-  const totalTickets = revenueData.reduce((sum, d) => sum + d.tickets, 0);
-  const avgTicketPrice = totalTickets > 0 ? weekRevenue / totalTickets : 0;
+  // Calculate all revenue from store showtimes
+  const totalRevenue = storeShowtimes.reduce(
+    (sum, st) => sum + st.bookedSeats.length * st.price,
+    0
+  );
+  const totalTickets = storeShowtimes.reduce(
+    (sum, st) => sum + st.bookedSeats.length,
+    0
+  );
+  const avgTicketPrice = totalTickets > 0 ? totalRevenue / totalTickets : 0;
+
+  // Today's revenue
+  const today = new Date().toISOString().split("T")[0];
+  const todayRevenue = storeShowtimes
+    .filter((st) => st.date === today)
+    .reduce((sum, st) => sum + st.bookedSeats.length * st.price, 0);
+
+  // Weekly revenue chart — last 7 days
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().split("T")[0];
+  });
+
+  const weeklyData = weekDays.map((date) => {
+    const dayShowtimes = storeShowtimes.filter((st) => st.date === date);
+    const revenue = dayShowtimes.reduce((sum, st) => sum + st.bookedSeats.length * st.price, 0);
+    const tickets = dayShowtimes.reduce((sum, st) => sum + st.bookedSeats.length, 0);
+    const d = new Date(date + "T00:00:00");
+    const label = d.toLocaleDateString("en", { weekday: "short" });
+    return { date: label, revenue, tickets };
+  });
+
+  const weekRevenue = weeklyData.reduce((sum, d) => sum + d.revenue, 0);
+  const maxRevenue = Math.max(...weeklyData.map((d) => d.revenue), 1);
 
   // Revenue by movie
   const movieRevenue: Record<string, number> = {};
-  confirmedBookings.forEach((b) => {
-    movieRevenue[b.movieId] = (movieRevenue[b.movieId] || 0) + b.totalPrice;
+  const movieTickets: Record<string, number> = {};
+  storeShowtimes.forEach((st) => {
+    movieRevenue[st.movieId] = (movieRevenue[st.movieId] || 0) + st.bookedSeats.length * st.price;
+    movieTickets[st.movieId] = (movieTickets[st.movieId] || 0) + st.bookedSeats.length;
   });
   const movieRevenueList = Object.entries(movieRevenue)
-    .map(([id, rev]) => ({ movie: getMovieById(id), revenue: rev }))
+    .map(([id, rev]) => ({ movie: getStoreMovieById(storeMovies, id), revenue: rev, tickets: movieTickets[id] || 0 }))
     .filter((x) => x.movie)
     .sort((a, b) => b.revenue - a.revenue);
 
-  // Revenue by payment method
-  const methodRevenue: Record<string, number> = {};
-  confirmedBookings.forEach((b) => {
-    methodRevenue[b.paymentMethod] = (methodRevenue[b.paymentMethod] || 0) + b.totalPrice;
-  });
-
-  const maxRevenue = Math.max(...revenueData.map((d) => d.revenue));
-  const totalRevenue = confirmedBookings.reduce((s, b) => s + b.totalPrice, 0);
-
-  const methodIcons: Record<string, typeof QrCode> = {
-    bakong: QrCode,
-    visa: CreditCard,
-    cash: Banknote,
-    wallet: DollarSign,
-  };
-
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold text-warm-black mb-6">
-        Revenue Reports
+      <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold text-foreground mb-6">
+        {t("admin.revenueReports")}
       </h1>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
-          { label: "Today", value: formatPrice(todayRevenue), icon: DollarSign },
-          { label: "This Week", value: formatPrice(weekRevenue), icon: TrendingUp },
-          { label: "This Month", value: formatPrice(monthRevenue), icon: DollarSign },
-          { label: "Avg Ticket", value: formatPrice(avgTicketPrice), icon: Ticket },
+          { label: t("common.today"), value: formatPrice(todayRevenue), icon: DollarSign },
+          { label: t("admin.thisWeek"), value: formatPrice(weekRevenue), icon: TrendingUp },
+          { label: t("admin.totalRevenue"), value: formatPrice(totalRevenue), icon: DollarSign },
+          { label: t("admin.avgTicket"), value: formatPrice(avgTicketPrice), icon: Ticket },
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-cream-light border border-warm-border rounded-xl p-4"
+            className="bg-card border border-border rounded-xl p-4"
           >
-            <stat.icon className="w-5 h-5 text-gold mb-2" />
-            <div className="font-[family-name:var(--font-mono)] text-xl font-bold text-warm-black">
+            <stat.icon className="w-5 h-5 text-primary mb-2" />
+            <div className="font-[family-name:var(--font-mono)] text-xl font-bold text-foreground">
               {stat.value}
             </div>
-            <div className="text-xs text-warm-muted">{stat.label}</div>
+            <div className="text-xs text-muted-foreground">{stat.label}</div>
           </motion.div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Weekly chart */}
-        <div className="bg-cream-light border border-warm-border rounded-xl p-5">
-          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-warm-black mb-4">
-            Weekly Revenue
-          </h2>
-          <div className="flex items-end justify-between gap-2 h-48">
-            {revenueData.map((d, i) => (
-              <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
-                <span className="text-[9px] font-[family-name:var(--font-mono)] text-warm-muted">
-                  ${d.revenue}
+      {/* Weekly chart */}
+      <div className="bg-card border border-border rounded-xl p-5 mb-8">
+        <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-foreground mb-4">
+          {t("admin.weeklyRevenue")}
+        </h2>
+        <div className="flex items-end justify-between gap-2 h-56 pt-8">
+          {weeklyData.map((d, i) => (
+            <div key={d.date} className="flex-1 flex flex-col h-full group">
+              {/* Value Label */}
+              <div className="h-6 flex flex-col items-center justify-center mb-2">
+                <span className="text-[9px] font-[family-name:var(--font-mono)] text-muted-foreground group-hover:text-primary transition-colors font-medium">
+                  {d.revenue > 0 ? `$${d.revenue.toFixed(0)}` : "—"}
                 </span>
-                <motion.div
-                  initial={{ height: 0 }}
-                  animate={{ height: `${(d.revenue / maxRevenue) * 100}%` }}
-                  transition={{ duration: 0.5, delay: i * 0.05 }}
-                  className="w-full bg-gold/80 rounded-t-md min-h-[4px] hover:bg-gold transition-colors"
-                />
-                <span className="text-[10px] text-warm-muted font-medium">{d.date}</span>
-                <span className="text-[9px] text-warm-tertiary">{d.tickets} tix</span>
+                {d.revenue > 0 && (
+                  <span className="text-[8px] text-muted-foreground/60 group-hover:block hidden">
+                    {d.tickets} tix
+                  </span>
+                )}
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* By payment method */}
-        <div className="bg-cream-light border border-warm-border rounded-xl p-5">
-          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-warm-black mb-4">
-            By Payment Method
-          </h2>
-          <div className="space-y-4">
-            {Object.entries(methodRevenue).map(([method, rev]) => {
-              const Icon = methodIcons[method] || DollarSign;
-              const pct = totalRevenue > 0 ? (rev / totalRevenue) * 100 : 0;
-              return (
-                <div key={method}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-4 h-4 text-gold" />
-                      <span className="text-sm capitalize text-warm-black font-medium">{method}</span>
-                    </div>
-                    <span className="font-[family-name:var(--font-mono)] text-sm text-warm-black font-medium">
-                      {formatPrice(rev)}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-cream-dark rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.6 }}
-                      className="h-full bg-gold rounded-full"
-                    />
-                  </div>
-                  <div className="text-[10px] text-warm-muted mt-0.5">{pct.toFixed(0)}% of total</div>
-                </div>
-              );
-            })}
-          </div>
+              {/* Bar Area */}
+              <div className="flex-1 relative flex items-end px-1">
+                <div
+                  style={{ height: `${maxRevenue > 0 ? (d.revenue / maxRevenue) * 100 : 0}%` }}
+                  className="w-full bg-amber-600 rounded-t-lg min-h-[4px] hover:bg-amber-500 transition-colors relative overflow-hidden group-hover:shadow-[0_0_15px_rgba(217,119,6,0.25)]"
+                />
+              </div>
+
+              {/* Labels Footer */}
+              <div className="mt-3 flex flex-col items-center">
+                <span className="text-[11px] text-muted-foreground font-semibold group-hover:text-foreground transition-colors uppercase tracking-tight">
+                  {d.date}
+                </span>
+                <span className="text-[9px] text-muted-foreground/50 font-medium">
+                  {d.tickets} {t("admin.tickets")}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Revenue by movie */}
-      <div className="bg-cream-light border border-warm-border rounded-xl p-5">
-        <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-warm-black mb-4">
-          Revenue by Movie
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-foreground mb-4">
+          {t("admin.revenueByMovie")}
         </h2>
-        <div className="space-y-3">
-          {movieRevenueList.map(({ movie, revenue }, i) => {
-            const pct = totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0;
-            return movie ? (
-              <div key={movie.id} className="flex items-center gap-3">
-                <span className="text-xs font-[family-name:var(--font-mono)] text-warm-tertiary w-4 shrink-0">
-                  {i + 1}.
-                </span>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-warm-black font-medium">{movie.title}</span>
-                    <span className="font-[family-name:var(--font-mono)] text-sm text-gold-dark font-medium">
-                      {formatPrice(revenue)}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-cream-dark rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.6, delay: i * 0.1 }}
-                      className="h-full bg-gold/70 rounded-full"
-                    />
+        <div className="space-y-4">
+          {(() => {
+            const maxMovieRev = Math.max(...movieRevenueList.map((m) => m.revenue), 1);
+            return movieRevenueList.map(({ movie, revenue, tickets }, i) => {
+              const pct = maxMovieRev > 0 ? (revenue / maxMovieRev) * 100 : 0;
+              const totalPct = totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0;
+              return movie ? (
+                <div key={movie.id} className="flex items-center gap-3">
+                  <span className="text-xs font-[family-name:var(--font-mono)] text-muted-foreground w-4 shrink-0">
+                    {i + 1}.
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-foreground font-medium">{movie.title}</span>
+                        {i === 0 && revenue > 0 && (
+                          <Badge className="text-[9px] h-4 px-1 bg-primary/10 text-primary border-0">Top</Badge>
+                        )}
+                      </div>
+                      <span className="font-[family-name:var(--font-mono)] text-sm text-primary font-medium">
+                        {formatPrice(revenue)}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-secondary/50 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: `${pct}%` }}
+                        className="h-full bg-amber-600 rounded-full relative"
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                      <span>{tickets} tickets</span>
+                      <span>{totalPct.toFixed(1)}% of total</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : null;
-          })}
+              ) : null;
+            });
+          })()}
+          {movieRevenueList.length === 0 && (
+            <p className="text-sm text-muted-foreground">{t("admin.noRevenue")}</p>
+          )}
         </div>
       </div>
     </div>
