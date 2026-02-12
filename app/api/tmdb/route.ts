@@ -26,8 +26,16 @@ export async function GET() {
       nowPlaying: nowPlaying.slice(0, 10).map((m) => mapTMDBToMovie(m, "now_showing")),
       upcoming: upcoming.slice(0, 10).map((m) => mapTMDBToMovie(m, "coming_soon")),
       popular: popular.slice(0, 5).map((m) => mapTMDBToMovie(m, "now_showing")),
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
     });
   } catch {
-    return NextResponse.json({ source: "mock", nowPlaying: [], upcoming: [], popular: [] });
+    return NextResponse.json({ source: "mock", nowPlaying: [], upcoming: [], popular: [] }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
+    });
   }
 }

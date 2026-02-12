@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { SpotlightCard } from "@/components/ui/spotlight-card";
 import { VoteButton } from "@/components/vote-button";
 import type { Movie, Showtime } from "@/lib/mock-data";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo, memo } from "react";
 import { useI18n } from "@/lib/i18n";
 
 interface MovieCardProps {
@@ -19,11 +19,17 @@ interface MovieCardProps {
   linkDate?: string;
 }
 
+function isNAValue(val: string | undefined | null): boolean {
+  if (!val || !val.trim()) return true;
+  const trimmed = val.trim().toUpperCase();
+  return trimmed === "NA" || trimmed === "N/A";
+}
+
 function SafeImage({ src, alt, className, noBackdrop, ...props }: { src: string; alt: string; fill?: boolean; className?: string; sizes?: string; width?: number; height?: number; noBackdrop?: boolean }) {
   const [error, setError] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const { t } = useI18n();
-  if (error || !src || noBackdrop) {
+  if (error || !src || noBackdrop || isNAValue(src)) {
     return (
       <div className="absolute inset-0 bg-secondary flex flex-col items-center justify-center gap-2 p-4">
         <Film className="w-8 h-8 text-muted-foreground/40" />
@@ -48,14 +54,14 @@ function SafeImage({ src, alt, className, noBackdrop, ...props }: { src: string;
   );
 }
 
-export function MovieCard({ movie, showtimes = [], index = 0, showVotes = false, linkDate }: MovieCardProps) {
+export const MovieCard = memo(function MovieCard({ movie, showtimes = [], index = 0, showVotes = false, linkDate }: MovieCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-40px" });
 
-  const todayShowtimes = showtimes.filter((s) => {
+  const todayShowtimes = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
-    return s.date === today;
-  });
+    return showtimes.filter((s) => s.date === today);
+  }, [showtimes]);
 
   return (
     <motion.div
@@ -148,4 +154,9 @@ export function MovieCard({ movie, showtimes = [], index = 0, showVotes = false,
       </Link>
     </motion.div>
   );
-}
+}, (prev, next) => {
+  return prev.movie.id === next.movie.id
+    && prev.showtimes?.length === next.showtimes?.length
+    && prev.showVotes === next.showVotes
+    && prev.linkDate === next.linkDate;
+});

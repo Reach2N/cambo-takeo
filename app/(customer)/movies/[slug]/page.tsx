@@ -18,7 +18,7 @@ import { useCinemaStore, getStoreShowtimesForMovie } from "@/lib/cinema-store";
 import { extractYouTubeId } from "@/lib/legend";
 import { getYouTubeThumbnail } from "@/lib/tmdb";
 import { isShowtimeUpcoming } from "@/lib/calendar-utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useI18n } from "@/lib/i18n";
 
 function SafeImage({ src, alt, noBackdrop, ...props }: { src: string; alt: string; fill?: boolean; className?: string; priority?: boolean; width?: number; height?: number; quality?: number; noBackdrop?: boolean }) {
@@ -87,75 +87,112 @@ export default function MovieDetailPage() {
     );
   }
 
-  const allShowtimes = getStoreShowtimesForMovie(storeShowtimes, movie.id);
-  const upcomingShowtimes = allShowtimes
-    .filter((s) => isShowtimeUpcoming(s.date, s.time))
-    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  const allShowtimes = useMemo(() =>
+    getStoreShowtimesForMovie(storeShowtimes, movie.id),
+  [storeShowtimes, movie.id]);
 
-  const showtimesByDate: Record<string, typeof upcomingShowtimes> = {};
-  upcomingShowtimes.forEach((st) => {
-    if (!showtimesByDate[st.date]) showtimesByDate[st.date] = [];
-    showtimesByDate[st.date].push(st);
-  });
+  const upcomingShowtimes = useMemo(() =>
+    allShowtimes
+      .filter((s) => isShowtimeUpcoming(s.date, s.time))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)),
+  [allShowtimes]);
+
+  const showtimesByDate = useMemo(() => {
+    const map: Record<string, typeof upcomingShowtimes> = {};
+    upcomingShowtimes.forEach((st) => {
+      if (!map[st.date]) map[st.date] = [];
+      map[st.date].push(st);
+    });
+    return map;
+  }, [upcomingShowtimes]);
   const youtubeId = movie.trailerUrl ? extractYouTubeId(movie.trailerUrl) : null;
 
   // Prefer movie's own backdrop, fall back to YouTube thumbnail
   const backdropImage = movie.backdropUrl
     || (youtubeId ? getYouTubeThumbnail(youtubeId) : "");
 
+  // Check if we have a valid backdrop (not empty, not "NA")
+  const hasBackdrop = backdropImage &&
+    backdropImage.trim() !== "" &&
+    !["NA", "N/A", "na", "n/a"].includes(backdropImage.trim());
+
+  // Check if we have a valid synopsis
+  const hasSynopsis = movie.synopsis &&
+    movie.synopsis.trim() !== "" &&
+    !["NA", "N/A", "na", "n/a"].includes(movie.synopsis.trim());
+
   return (
     <div>
       {/* Backdrop */}
-      <div className="relative h-[45vh] sm:h-[55vh] overflow-hidden">
-        <motion.div
-          initial={{ scale: 1.05, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="absolute inset-0"
-        >
-          <SafeImage
-            src={backdropImage}
-            alt={movie.title}
-            fill
-            className="object-cover"
-            priority
-            quality={90}
-          />
-        </motion.div>
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-background/10" />
-
-        {/* Play button - opens trailer */}
-        {youtubeId && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <motion.button
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowTrailer(true)}
-              className="w-16 h-16 rounded-full bg-primary/90 flex items-center justify-center shadow-lg shadow-primary/30 backdrop-blur-sm"
-            >
-              <Play className="w-7 h-7 text-primary-foreground ml-1" fill="currentColor" />
-            </motion.button>
-          </div>
-        )}
-
-        {/* Back button */}
-        <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1 }}
-          className="absolute top-24 left-4 z-20"
-        >
-          <Link
-            href="/"
-            className="flex items-center gap-1 px-3 py-1.5 bg-background/80 backdrop-blur-sm rounded-lg text-sm text-foreground hover:bg-background transition-all active:scale-95 border border-border/50 shadow-sm"
+      {hasBackdrop ? (
+        <div className="relative h-[45vh] sm:h-[55vh] overflow-hidden">
+          <motion.div
+            initial={{ scale: 1.05, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="absolute inset-0"
           >
-            <ArrowLeft className="w-4 h-4" /> {t("common.back")}
-          </Link>
-        </motion.div>
-      </div>
+            <SafeImage
+              src={backdropImage}
+              alt={movie.title}
+              fill
+              className="object-cover"
+              priority
+              quality={75}
+            />
+          </motion.div>
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-background/10" />
+
+          {/* Play button - opens trailer */}
+          {youtubeId && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <motion.button
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowTrailer(true)}
+                className="w-16 h-16 rounded-full bg-primary/90 flex items-center justify-center shadow-lg shadow-primary/30 backdrop-blur-sm"
+              >
+                <Play className="w-7 h-7 text-primary-foreground ml-1" fill="currentColor" />
+              </motion.button>
+            </div>
+          )}
+
+          {/* Back button */}
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="absolute top-24 left-4 z-20"
+          >
+            <Link
+              href="/"
+              className="flex items-center gap-1 px-3 py-1.5 bg-background/80 backdrop-blur-sm rounded-lg text-sm text-foreground hover:bg-background transition-all active:scale-95 border border-border/50 shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" /> {t("common.back")}
+            </Link>
+          </motion.div>
+        </div>
+      ) : (
+        /* Minimal header when no backdrop */
+        <div className="relative h-[20vh] sm:h-[25vh] overflow-hidden bg-gradient-to-b from-secondary to-background">
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="absolute top-24 left-4 z-20"
+          >
+            <Link
+              href="/"
+              className="flex items-center gap-1 px-3 py-1.5 bg-background/80 backdrop-blur-sm rounded-lg text-sm text-foreground hover:bg-background transition-all active:scale-95 border border-border/50 shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" /> {t("common.back")}
+            </Link>
+          </motion.div>
+        </div>
+      )}
 
       {/* YouTube Trailer Modal */}
       <AnimatePresence>
@@ -203,7 +240,7 @@ export default function MovieDetailPage() {
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-        className="max-w-4xl mx-auto px-4 sm:px-6 -mt-20 relative z-10"
+        className={`max-w-4xl mx-auto px-4 sm:px-6 relative z-10 ${hasBackdrop ? "-mt-20" : "-mt-10"}`}
       >
         <div className="flex gap-4 sm:gap-6">
           {/* Poster */}
@@ -218,7 +255,7 @@ export default function MovieDetailPage() {
               alt={movie.title}
               width={144}
               height={216}
-              noBackdrop={!movie.backdropUrl}
+              noBackdrop={!movie.posterUrl || ["NA", "N/A", "na", "n/a"].includes(movie.posterUrl.trim())}
               className="object-cover w-full h-full"
             />
           </motion.div>
@@ -253,18 +290,22 @@ export default function MovieDetailPage() {
           </div>
         </div>
 
-        {/* Synopsis */}
-        <BlurFade delay={0.2} className="mt-8">
-          <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-foreground mb-2">
-            {t("movie.synopsis")}
-          </h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">{movie.synopsis}</p>
-          {movie.synopsisKh && (
-            <p className="font-[family-name:var(--font-khmer)] text-sm text-muted-foreground leading-relaxed mt-2">
-              {movie.synopsisKh}
-            </p>
-          )}
-        </BlurFade>
+        {/* Synopsis — hidden when empty or "NA" */}
+        {hasSynopsis && (
+          <BlurFade delay={0.2} className="mt-8">
+            <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-foreground mb-2">
+              {t("movie.synopsis")}
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">{movie.synopsis}</p>
+            {movie.synopsisKh &&
+              movie.synopsisKh.trim() !== "" &&
+              !["NA", "N/A", "na", "n/a"].includes(movie.synopsisKh.trim()) && (
+              <p className="font-[family-name:var(--font-khmer)] text-sm text-muted-foreground leading-relaxed mt-2">
+                {movie.synopsisKh}
+              </p>
+            )}
+          </BlurFade>
+        )}
 
         {/* Showtimes */}
         {movie.status === "now_showing" && (

@@ -203,8 +203,11 @@ export const translations = {
   "admin.list": { km: "បញ្ជី", en: "List", zh: "列表" },
   "admin.calendar": { km: "ប្រតិទិន", en: "Calendar", zh: "日历" },
   "admin.addShowtime": { km: "បន្ថែមម៉ោង", en: "Add Showtime", zh: "添加场次" },
+  "admin.editShowtime": { km: "កែម៉ោងចាក់បញ្ចាំង", en: "Edit Showtime", zh: "编辑场次" },
   "admin.noShowtimes": { km: "គ្មានម៉ោងចាក់បញ្ចាំងសម្រាប់ថ្ងៃនេះ", en: "No showtimes for this date", zh: "此日期无放映场次" },
   "admin.pricePerSeat": { km: "តម្លៃក្នុងមួយកៅអី ($)", en: "Price per seat ($)", zh: "每座价格 ($)" },
+  "admin.copy": { km: "ចម្លង", en: "Copy", zh: "复制" },
+  "admin.delete": { km: "លុប", en: "Delete", zh: "删除" },
 
   // ── Admin Revenue ──
   "admin.revenueReports": { km: "របាយការណ៍ចំណូល", en: "Revenue Reports", zh: "收入报告" },

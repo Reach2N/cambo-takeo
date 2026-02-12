@@ -51,7 +51,7 @@ export function AdminSidebar() {
           />
           <div className="leading-tight">
             <span className="font-[family-name:var(--font-display)] text-sm font-bold text-sidebar-foreground">
-              Cambo Cinema Takeo
+              Cambo Cinema
             </span>
             <span className="text-[9px] text-sidebar-foreground/50 block">{t("admin.panel")}</span>
           </div>
@@ -66,8 +66,8 @@ export function AdminSidebar() {
             href={item.href}
             onClick={() => setMobileOpen(false)}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${isActive(item.href)
-                ? "bg-sidebar-primary/20 text-sidebar-primary font-medium"
-                : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              ? "bg-sidebar-primary/20 text-sidebar-primary font-medium"
+              : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               }`}
           >
             <item.icon className="w-4.5 h-4.5" />
@@ -100,7 +100,7 @@ export function AdminSidebar() {
       </button>
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-56 bg-sidebar min-h-screen shrink-0">
+      <aside className="hidden lg:flex flex-col w-56 bg-sidebar h-screen sticky top-0 border-r border-sidebar-border shrink-0 overflow-y-auto">
         <SidebarContent />
       </aside>
 

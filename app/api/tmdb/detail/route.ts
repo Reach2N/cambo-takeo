@@ -16,7 +16,11 @@ export async function GET(req: Request) {
     }
 
     const movie = mapTMDBDetailToMovie(detail);
-    return NextResponse.json({ movie });
+    return NextResponse.json({ movie }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }

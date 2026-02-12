@@ -25,8 +25,16 @@ export async function GET(req: Request) {
       popularity: m.popularity,
     }));
 
-    return NextResponse.json({ results: mapped });
+    return NextResponse.json({ results: mapped }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
+    });
   } catch {
-    return NextResponse.json({ results: [] });
+    return NextResponse.json({ results: [] }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
+    });
   }
 }

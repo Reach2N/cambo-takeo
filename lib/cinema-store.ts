@@ -312,13 +312,15 @@ export const useCinemaStore = create<CinemaState>()(
           const { data: movieRows } = await supabase
             .from("movies")
             .select("*")
-            .order("created_at", { ascending: false });
+            .order("created_at", { ascending: false })
+            .limit(100);
 
           // Load showtimes
           const { data: showtimeRows } = await supabase
             .from("showtimes")
             .select("*")
-            .order("date", { ascending: true });
+            .order("date", { ascending: true })
+            .limit(100);
 
           // Load votes
           const { data: voteRows } = await supabase
@@ -474,9 +476,21 @@ export const useCinemaStore = create<CinemaState>()(
         userVotes: state.userVotes,
         purchasedTickets: state.purchasedTickets,
         lastLegendSync: state.lastLegendSync,
+        _persistedAt: Date.now(),
       }),
       onRehydrateStorage: () => (state) => {
-        state?._setHydrated(true);
+        if (state) {
+          // Check localStorage TTL — if older than 24 hours, clear stale data
+          const persistedAt = (state as Record<string, unknown>)._persistedAt as number | undefined;
+          const TTL = 24 * 60 * 60 * 1000; // 24 hours
+          if (persistedAt && Date.now() - persistedAt > TTL) {
+            // Stale data — reset to empty so initializeFromSupabase re-fetches
+            state.movies = [];
+            state.showtimes = [];
+            state.votes = {};
+          }
+          state._setHydrated(true);
+        }
       },
     }
   )

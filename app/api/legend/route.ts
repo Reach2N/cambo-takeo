@@ -15,8 +15,16 @@ export async function GET() {
       source: "legend",
       movies: mapped,
       count: mapped.length,
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
     });
   } catch {
-    return NextResponse.json({ source: "legend", movies: [], count: 0 });
+    return NextResponse.json({ source: "legend", movies: [], count: 0 }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=1800, stale-while-revalidate=3600',
+      },
+    });
   }
 }

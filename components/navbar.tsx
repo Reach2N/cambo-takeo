@@ -102,14 +102,14 @@ export function Navbar() {
           <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
             <Image
               src="/cambo-cinema.jpg"
-              alt="Cambo Cinema Takeo"
+              alt="Cambo Cinema"
               width={36}
               height={36}
               className="w-9 h-9 rounded-full object-cover group-hover:scale-110 transition-transform shadow-sm"
             />
             <div className="leading-none ">
               <span className="font-[family-name:var(--font-display)] text-lg font-bold text-foreground tracking-tight">
-                Cambo Cinema Takeo
+                Cambo Cinema
               </span>
             </div>
           </Link>

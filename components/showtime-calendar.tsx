@@ -13,8 +13,10 @@ import {
   DragOverlay,
   useDraggable,
   useDroppable,
+  pointerWithin,
   type DragStartEvent,
   type DragEndEvent,
+  type DragMoveEvent,
   PointerSensor,
   TouchSensor,
   useSensor,
@@ -32,10 +34,13 @@ import {
 
 const START_HOUR = 10;
 const END_HOUR = 24;
-const SLOT_SIZE = 30; // minutes
-const SLOT_HEIGHT = 40; // px per 30-min slot
-const TOTAL_SLOTS = ((END_HOUR - START_HOUR) * 60) / SLOT_SIZE;
-const VISIBLE_DAYS = 14;
+const HOUR_HEIGHT = 40; // Reduced height
+const PX_PER_MINUTE = HOUR_HEIGHT / 60;
+const TOTAL_MINUTES = (END_HOUR - START_HOUR) * 60;
+const TOTAL_HEIGHT = TOTAL_MINUTES * PX_PER_MINUTE;
+const COL_WIDTH = 140;
+const SNAP_MINUTES = 5; // 5-minute precision
+const MIN_BLOCK_HEIGHT = 28;
 
 // ── Movie color palette ──
 
@@ -63,12 +68,16 @@ function ShowtimeBlock({
   colorClass,
   topPx,
   heightPx,
+  isDragActive,
+  onClick,
 }: {
   showtime: Showtime;
   movie: Movie;
   colorClass: string;
   topPx: number;
   heightPx: number;
+  isDragActive: boolean;
+  onClick?: (e: React.MouseEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: showtime.id,
@@ -80,12 +89,13 @@ function ShowtimeBlock({
     top: topPx,
     left: 4,
     right: 4,
-    height: Math.max(heightPx, SLOT_HEIGHT),
+    height: Math.max(heightPx, MIN_BLOCK_HEIGHT),
     zIndex: isDragging ? 50 : 10,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.3 : 1,
     transform: transform
       ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
       : undefined,
+    pointerEvents: isDragActive && !isDragging ? "none" : "auto",
   };
 
   const available = showtime.totalSeats - showtime.bookedSeats.length;
@@ -94,7 +104,11 @@ function ShowtimeBlock({
     <div
       ref={setNodeRef}
       style={style}
-      className={`rounded-lg border px-2 py-1 cursor-grab active:cursor-grabbing transition-shadow hover:shadow-lg select-none ${colorClass}`}
+      className={`rounded-lg border px-2 py-1 cursor-grab active:cursor-grabbing transition-shadow hover:shadow-lg select-none overflow-hidden ${colorClass}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
       {...listeners}
       {...attributes}
     >
@@ -109,39 +123,124 @@ function ShowtimeBlock({
   );
 }
 
-// ── Droppable time cell ──
+// ── Droppable day column (single droppable per day) ──
 
-function TimeSlotCell({
+function DayColumn({
   date,
-  slotIndex,
+  dayShowtimes,
+  movies,
+  movieIds,
   onClickEmpty,
+  onShowtimeClick,
+  isTodayCol,
+  activeDragId,
+  dropPreview,
+  nowTop,
 }: {
   date: string;
-  slotIndex: number;
+  dayShowtimes: Showtime[];
+  movies: Movie[];
+  movieIds: string[];
   onClickEmpty: (date: string, time: string) => void;
+  onShowtimeClick?: (showtime: Showtime) => void;
+  isTodayCol: boolean;
+  activeDragId: string | null;
+  dropPreview: { date: string; minutes: number } | null;
+  nowTop: number;
 }) {
-  const minutes = START_HOUR * 60 + slotIndex * SLOT_SIZE;
-  const time = minutesToTimeString(minutes);
-  const droppableId = `${date}-${time}`;
-
   const { setNodeRef, isOver } = useDroppable({
-    id: droppableId,
-    data: { date, time, minutes },
+    id: `column-${date}`,
+    data: { date },
   });
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const minutes = START_HOUR * 60 + y / PX_PER_MINUTE;
+      const snapped = roundToNearestSlot(minutes, SNAP_MINUTES);
+      const clamped = Math.max(START_HOUR * 60, Math.min(snapped, (END_HOUR - 1) * 60));
+      onClickEmpty(date, minutesToTimeString(clamped));
+    },
+    [date, onClickEmpty]
+  );
 
   return (
     <div
       ref={setNodeRef}
-      onClick={() => onClickEmpty(date, time)}
-      className={`border-b border-border/30 transition-colors cursor-pointer hover:bg-primary/5 ${
-        isOver ? "bg-primary/15" : ""
-      } ${slotIndex % 2 === 0 ? "border-b-border/50" : ""}`}
-      style={{ height: SLOT_HEIGHT }}
-    />
+      onClick={handleClick}
+      className={`shrink-0 relative border-l border-border/50 cursor-pointer transition-colors ${isTodayCol ? "bg-primary/5" : ""
+        } ${isOver && activeDragId ? "bg-primary/8" : ""}`}
+      style={{ width: COL_WIDTH, height: TOTAL_HEIGHT }}
+    >
+      {/* Hour grid lines */}
+      {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, i) => (
+        <div
+          key={`h-${i}`}
+          className="absolute left-0 right-0 border-t border-border/40"
+          style={{ top: i * HOUR_HEIGHT }}
+        />
+      ))}
+      {/* Half-hour grid lines */}
+      {Array.from({ length: END_HOUR - START_HOUR }).map((_, i) => (
+        <div
+          key={`hh-${i}`}
+          className="absolute left-0 right-0 border-t border-border/15 border-dashed"
+          style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
+        />
+      ))}
+
+      {/* Showtime blocks */}
+      {dayShowtimes.map((st) => {
+        const movie = getStoreMovieById(movies, st.movieId);
+        if (!movie) return null;
+        const stMinutes = timeStringToMinutes(st.time);
+        const topPx = (stMinutes - START_HOUR * 60) * PX_PER_MINUTE;
+        const duration = movie.duration || 120;
+        const heightPx = duration * PX_PER_MINUTE;
+        return (
+          <ShowtimeBlock
+            key={st.id}
+            showtime={st}
+            movie={movie}
+            colorClass={getMovieColor(st.movieId, movieIds)}
+            topPx={topPx}
+            heightPx={heightPx}
+            isDragActive={!!activeDragId}
+            onClick={() => onShowtimeClick?.(st)}
+          />
+        );
+      })}
+
+      {/* Drop preview indicator */}
+      {dropPreview && dropPreview.date === date && (
+        <div
+          className="absolute left-0 right-0 z-30 pointer-events-none"
+          style={{ top: (dropPreview.minutes - START_HOUR * 60) * PX_PER_MINUTE }}
+        >
+          <div className="h-0.5 bg-primary w-full" />
+          <span className="absolute -top-3.5 left-1 text-[9px] font-mono text-primary font-bold bg-card/90 backdrop-blur-sm px-1 rounded border border-primary/30">
+            {minutesToTimeString(dropPreview.minutes)}
+          </span>
+        </div>
+      )}
+
+      {/* Current time indicator */}
+      {nowTop >= 0 && (
+        <div
+          className="absolute left-0 right-0 z-20 pointer-events-none"
+          style={{ top: nowTop }}
+        >
+          <div className="h-[2px] bg-red-500/80 w-full relative">
+            <div className="absolute -left-[3px] -top-[3px] w-2 h-2 rounded-full bg-red-500" />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-// ── Drag overlay for smooth rendering ──
+// ── Drag overlay ──
 
 function DragOverlayBlock({
   showtime,
@@ -154,12 +253,12 @@ function DragOverlayBlock({
 }) {
   const available = showtime.totalSeats - showtime.bookedSeats.length;
   const duration = movie.duration || 120;
-  const heightPx = (duration / SLOT_SIZE) * SLOT_HEIGHT;
+  const heightPx = duration * PX_PER_MINUTE;
 
   return (
     <div
       className={`rounded-lg border px-2 py-1 shadow-2xl cursor-grabbing ${colorClass}`}
-      style={{ width: 160, height: Math.max(heightPx, SLOT_HEIGHT) }}
+      style={{ width: 160, height: Math.max(heightPx, MIN_BLOCK_HEIGHT) }}
     >
       <div className="flex items-center gap-1 min-w-0">
         <GripVertical className="w-3 h-3 opacity-50 shrink-0" />
@@ -176,11 +275,14 @@ function DragOverlayBlock({
 
 export function ShowtimeCalendar({
   onAddShowtime,
+  onEditShowtime,
 }: {
   onAddShowtime?: (date: string, time: string) => void;
+  onEditShowtime?: (showtime: Showtime) => void;
 }) {
   const { movies, showtimes, updateShowtime } = useCinemaStore();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropPreview, setDropPreview] = useState<{ date: string; minutes: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
 
@@ -189,16 +291,13 @@ export function ShowtimeCalendar({
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
 
-  // Show 7 past days + today + 14 future days
   const allDates = useMemo(() => getDatesAroundToday(7, 14), []);
 
-  // Unique movie IDs for color assignment
   const movieIds = useMemo(
     () => [...new Set(showtimes.map((s) => s.movieId))],
     [showtimes]
   );
 
-  // Group showtimes by date
   const showtimesByDate = useMemo(() => {
     const map: Record<string, Showtime[]> = {};
     for (const date of allDates) {
@@ -214,16 +313,14 @@ export function ShowtimeCalendar({
     ? getStoreMovieById(movies, activeShowtime.movieId)
     : null;
 
-  // Time labels
-  const timeLabels = useMemo(() => {
-    const labels: string[] = [];
-    for (let i = 0; i < TOTAL_SLOTS; i++) {
-      const minutes = START_HOUR * 60 + i * SLOT_SIZE;
-      if (i % 2 === 0) {
-        labels.push(minutesToTimeString(minutes));
-      } else {
-        labels.push("");
-      }
+  // Hour labels for the time gutter
+  const hourLabels = useMemo(() => {
+    const labels: { time: string; top: number }[] = [];
+    for (let h = START_HOUR; h < END_HOUR; h++) {
+      labels.push({
+        time: minutesToTimeString(h * 60),
+        top: (h - START_HOUR) * HOUR_HEIGHT,
+      });
     }
     return labels;
   }, []);
@@ -233,7 +330,6 @@ export function ShowtimeCalendar({
     const body = scrollRef.current;
     const header = headerScrollRef.current;
     if (!body || !header) return;
-
     const onBodyScroll = () => {
       header.scrollLeft = body.scrollLeft;
     };
@@ -241,16 +337,23 @@ export function ShowtimeCalendar({
     return () => body.removeEventListener("scroll", onBodyScroll);
   }, []);
 
-  // Auto-scroll calendar to today's column on mount
+  // Auto-scroll to today (horizontally) + center current time (vertically)
   useEffect(() => {
     requestAnimationFrame(() => {
       const todayStr = new Date().toISOString().split("T")[0];
       const todayIndex = allDates.indexOf(todayStr);
-      if (todayIndex > 0 && scrollRef.current) {
+      if (scrollRef.current) {
         const scrollTo = todayIndex * COL_WIDTH;
         scrollRef.current.scrollLeft = scrollTo;
         if (headerScrollRef.current) {
           headerScrollRef.current.scrollLeft = scrollTo;
+        }
+        // Center current time vertically
+        const now = new Date();
+        const nowMins = now.getHours() * 60 + now.getMinutes();
+        if (nowMins >= START_HOUR * 60 && nowMins <= END_HOUR * 60) {
+          const nowY = (nowMins - START_HOUR * 60) * PX_PER_MINUTE;
+          scrollRef.current.scrollTop = Math.max(0, nowY - scrollRef.current.clientHeight / 2);
         }
       }
     });
@@ -260,35 +363,76 @@ export function ShowtimeCalendar({
     setActiveId(event.active.id as string);
   }, []);
 
+  const handleDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const { active, over, delta } = event;
+      if (!over || !active) {
+        setDropPreview(null);
+        return;
+      }
+
+      const showtime = showtimes.find((s) => s.id === active.id);
+      if (!showtime) {
+        setDropPreview(null);
+        return;
+      }
+
+      const targetDate = (over.data.current as { date: string } | undefined)?.date;
+      if (!targetDate) {
+        setDropPreview(null);
+        return;
+      }
+
+      const originalMinutes = timeStringToMinutes(showtime.time);
+      const deltaMinutes = delta.y / PX_PER_MINUTE;
+      const newMinutes = roundToNearestSlot(originalMinutes + deltaMinutes, SNAP_MINUTES);
+      const clampedMinutes = Math.max(
+        START_HOUR * 60,
+        Math.min(newMinutes, END_HOUR * 60 - SNAP_MINUTES)
+      );
+
+      setDropPreview({ date: targetDate, minutes: clampedMinutes });
+    },
+    [showtimes]
+  );
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActiveId(null);
-      const { active, over } = event;
+      setDropPreview(null);
+      const { active, over, delta } = event;
       if (!over) return;
 
       const showtimeId = active.id as string;
-      const dropData = over.data.current as { date: string; time: string; minutes: number } | undefined;
-      if (!dropData) return;
-
       const showtime = showtimes.find((s) => s.id === showtimeId);
       if (!showtime) return;
 
-      const snappedMinutes = roundToNearestSlot(dropData.minutes, SLOT_SIZE);
+      const targetDate = (over.data.current as { date: string } | undefined)?.date;
+      if (!targetDate) return;
+
+      const originalMinutes = timeStringToMinutes(showtime.time);
+      const deltaMinutes = delta.y / PX_PER_MINUTE;
+      const newMinutes = roundToNearestSlot(originalMinutes + deltaMinutes, SNAP_MINUTES);
       const clampedMinutes = Math.max(
         START_HOUR * 60,
-        Math.min(snappedMinutes, (END_HOUR - 1) * 60)
+        Math.min(newMinutes, END_HOUR * 60 - SNAP_MINUTES)
       );
       const newTime = minutesToTimeString(clampedMinutes);
 
-      if (showtime.date !== dropData.date || showtime.time !== newTime) {
+      if (showtime.date !== targetDate || showtime.time !== newTime) {
         updateShowtime(showtimeId, {
-          date: dropData.date,
+          date: targetDate,
           time: newTime,
         });
       }
     },
     [showtimes, updateShowtime]
   );
+
+  const handleDragCancel = useCallback(() => {
+    setActiveId(null);
+    setDropPreview(null);
+  }, []);
 
   const handleClickEmpty = useCallback(
     (date: string, time: string) => {
@@ -302,40 +446,45 @@ export function ShowtimeCalendar({
     return dateStr === today;
   };
 
-  const COL_WIDTH = 140; // px per day column
+  // Current time indicator
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const todayStr = now.toISOString().split("T")[0];
+  const nowInRange = nowMinutes >= START_HOUR * 60 && nowMinutes <= END_HOUR * 60;
+  const nowTop = nowInRange ? (nowMinutes - START_HOUR * 60) * PX_PER_MINUTE : -1;
 
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
-      {/* Calendar grid */}
       <div className="border border-border rounded-xl bg-card overflow-hidden">
-        {/* Sticky day headers — synced scroll */}
+        {/* Sticky day headers */}
         <div
           ref={headerScrollRef}
           className="overflow-hidden border-b border-border"
           style={{ pointerEvents: "none" }}
         >
-          <div className="flex" style={{ paddingLeft: 60 }}>
+          <div className="flex" style={{ paddingLeft: 56 }}>
             {allDates.map((date) => {
               const d = new Date(date + "T00:00:00");
               return (
                 <div
                   key={date}
-                  className={`shrink-0 p-2 text-center border-l border-border/50 ${
-                    isToday(date) ? "bg-primary/10" : ""
-                  }`}
+                  className={`shrink-0 p-2 text-center border-l border-border/50 ${isToday(date) ? "bg-primary/10" : ""
+                    }`}
                   style={{ width: COL_WIDTH }}
                 >
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                     {formatDate(date) === "Today" ? "Today" : formatWeekday(date)}
                   </div>
                   <div
-                    className={`text-sm font-semibold font-[family-name:var(--font-mono)] ${
-                      isToday(date) ? "text-primary" : "text-foreground"
-                    }`}
+                    className={`text-sm font-semibold font-[family-name:var(--font-mono)] ${isToday(date) ? "text-primary" : "text-foreground"
+                      }`}
                   >
                     {d.getDate()}
                   </div>
@@ -351,69 +500,39 @@ export function ShowtimeCalendar({
           className="overflow-auto"
           style={{ maxHeight: "calc(100vh - 220px)" }}
         >
-          <div className="flex" style={{ width: 60 + allDates.length * COL_WIDTH }}>
+          <div className="flex" style={{ width: 56 + allDates.length * COL_WIDTH }}>
             {/* Time labels column */}
-            <div className="shrink-0 sticky left-0 z-10 bg-card" style={{ width: 60 }}>
-              {timeLabels.map((label, i) => (
+            <div
+              className="shrink-0 sticky left-0 z-20 bg-card border-r border-border/30"
+              style={{ width: 56, height: TOTAL_HEIGHT }}
+            >
+              {hourLabels.map(({ time, top }) => (
                 <div
-                  key={i}
-                  className={`flex items-start justify-end pr-2 text-[10px] font-mono text-muted-foreground ${
-                    label ? "" : "opacity-0"
-                  }`}
-                  style={{ height: SLOT_HEIGHT }}
+                  key={time}
+                  className="absolute right-2 text-[10px] font-mono text-muted-foreground leading-none"
+                  style={{ top: top + 4 }}
                 >
-                  {label}
+                  {time}
                 </div>
               ))}
             </div>
 
             {/* Day columns */}
-            {allDates.map((date) => {
-              const dayShowtimes = showtimesByDate[date] || [];
-
-              return (
-                <div
-                  key={date}
-                  className={`shrink-0 relative border-l border-border/50 ${
-                    isToday(date) ? "bg-primary/5" : ""
-                  }`}
-                  style={{ width: COL_WIDTH }}
-                >
-                  {/* Drop zones */}
-                  {Array.from({ length: TOTAL_SLOTS }).map((_, i) => (
-                    <TimeSlotCell
-                      key={i}
-                      date={date}
-                      slotIndex={i}
-                      onClickEmpty={handleClickEmpty}
-                    />
-                  ))}
-
-                  {/* Showtime blocks */}
-                  {dayShowtimes.map((st) => {
-                    const movie = getStoreMovieById(movies, st.movieId);
-                    if (!movie) return null;
-
-                    const stMinutes = timeStringToMinutes(st.time);
-                    const topPx =
-                      ((stMinutes - START_HOUR * 60) / SLOT_SIZE) * SLOT_HEIGHT;
-                    const duration = movie.duration || 120;
-                    const heightPx = (duration / SLOT_SIZE) * SLOT_HEIGHT;
-
-                    return (
-                      <ShowtimeBlock
-                        key={st.id}
-                        showtime={st}
-                        movie={movie}
-                        colorClass={getMovieColor(st.movieId, movieIds)}
-                        topPx={topPx}
-                        heightPx={heightPx}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
+            {allDates.map((date) => (
+              <DayColumn
+                key={date}
+                date={date}
+                dayShowtimes={showtimesByDate[date] || []}
+                movies={movies}
+                movieIds={movieIds}
+                onClickEmpty={handleClickEmpty}
+                onShowtimeClick={onEditShowtime}
+                isTodayCol={isToday(date)}
+                activeDragId={activeId}
+                dropPreview={dropPreview}
+                nowTop={date === todayStr ? nowTop : -1}
+              />
+            ))}
           </div>
         </div>
       </div>

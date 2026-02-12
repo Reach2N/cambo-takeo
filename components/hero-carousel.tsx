@@ -11,6 +11,14 @@ import { extractYouTubeId } from "@/lib/legend";
 import { getYouTubeThumbnailHQ } from "@/lib/tmdb";
 import { useState, useEffect, useCallback, useRef } from "react";
 
+// ── NA/empty validation ──
+
+function isValidContent(value: string | undefined | null): boolean {
+  if (!value || !value.trim()) return false;
+  const trimmed = value.trim().toUpperCase();
+  return trimmed !== "NA" && trimmed !== "N/A";
+}
+
 // ── Safe image with error fallback ──
 
 function HeroImage({ src, alt, ...props }: { src: string; alt: string; fill?: boolean; className?: string; priority?: boolean; sizes?: string; quality?: number }) {
@@ -23,7 +31,7 @@ function HeroImage({ src, alt, ...props }: { src: string; alt: string; fill?: bo
     setError(false);
   }, [src]);
 
-  if (error || !imgSrc) {
+  if (error || !isValidContent(imgSrc)) {
     return (
       <div className="absolute inset-0 bg-black flex flex-col items-center justify-center gap-2">
         <Film className="w-12 h-12 text-white/20" />
@@ -34,41 +42,14 @@ function HeroImage({ src, alt, ...props }: { src: string; alt: string; fill?: bo
   return <Image src={imgSrc} alt={alt} onError={() => setError(true)} {...props} />;
 }
 
-// ── Floating particles for cinematic feel ──
-
-function FloatingParticles() {
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {Array.from({ length: 20 }).map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-1 h-1 rounded-full bg-primary/30"
-          initial={{
-            x: `${Math.random() * 100}%`,
-            y: `${Math.random() * 100}%`,
-            opacity: 0,
-          }}
-          animate={{
-            y: [null, `${Math.random() * -30 - 10}%`],
-            opacity: [0, 0.6, 0],
-          }}
-          transition={{
-            duration: Math.random() * 4 + 4,
-            repeat: Infinity,
-            delay: Math.random() * 3,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
+// FloatingParticles removed — 20 motion.div nodes with Infinity animations
+// hammered the GPU for zero functional benefit on target devices.
 
 // ── Hero Carousel ──
 
 export function HeroCarousel({ movies }: { movies: Movie[] }) {
   const [current, setCurrent] = useState(0);
-  const [progress, setProgress] = useState(0);
+  const [progressKey, setProgressKey] = useState(0);
   const [showTrailer, setShowTrailer] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -79,8 +60,10 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
 
   const trailerId = movie?.trailerUrl ? extractYouTubeId(movie.trailerUrl) : null;
   // Prefer YouTube high-res thumbnail, fall back to TMDB backdrop
-  const backdropImage = (trailerId ? getYouTubeThumbnailHQ(trailerId) : "")
-    || movie?.backdropUrl || "";
+  const ytThumb = trailerId ? getYouTubeThumbnailHQ(trailerId) : "";
+  const backdropImage = isValidContent(ytThumb) ? ytThumb
+    : isValidContent(movie?.backdropUrl) ? (movie?.backdropUrl || "")
+    : "";
 
   const { scrollY } = useScroll();
   const heroScale = useTransform(scrollY, [0, 400], [1, 1.1]);
@@ -89,27 +72,20 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
   const goTo = useCallback(
     (idx: number) => {
       setCurrent(idx);
-      setProgress(0);
+      setProgressKey((k) => k + 1);
     },
     []
   );
 
-  // Auto-advance with progress — pauses while dragging
+  // Auto-advance with CSS animation — single setTimeout replaces 140 renders/cycle
   useEffect(() => {
     if (isDragging) return;
     const duration = 7000;
-    const interval = 50;
-    let elapsed = 0;
-    const timer = setInterval(() => {
-      elapsed += interval;
-      setProgress((elapsed / duration) * 100);
-      if (elapsed >= duration) {
-        setCurrent((c) => (c + 1) % featured.length);
-        elapsed = 0;
-        setProgress(0);
-      }
-    }, interval);
-    return () => clearInterval(timer);
+    setProgressKey((k) => k + 1);
+    const timer = setTimeout(() => {
+      setCurrent((c) => (c + 1) % featured.length);
+    }, duration);
+    return () => clearTimeout(timer);
   }, [current, featured.length, isDragging]);
 
   if (!movie) return null;
@@ -124,7 +100,7 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.6, ease: "easeInOut" }}
+            transition={{ duration: 0.35, ease: "easeInOut" }}
             className="absolute inset-0"
           >
             <HeroImage
@@ -134,7 +110,7 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
               className="object-cover"
               priority
               sizes="100vw"
-              quality={100}
+              quality={75}
             />
           </motion.div>
         </AnimatePresence>
@@ -188,26 +164,37 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
       {/* 2. Bottom transition strip — blends hero into page content */}
       <div className="absolute inset-x-0 bottom-0 h-60 bg-gradient-to-t from-background to-transparent" />
 
-      <FloatingParticles />
+      {/* Subtle CSS particle effect — no JS, no extra DOM nodes */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none hero-particles" />
 
       {/* Content — draggable for swipe gestures */}
       <motion.div
-        style={{ opacity: heroOpacity }}
+        style={{ opacity: heroOpacity, touchAction: "pan-y" }}
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.15}
+        dragElastic={0.4}
         dragDirectionLock
         onDragStart={() => {
           isDraggingRef.current = true;
           setIsDragging(true);
         }}
         onDragEnd={(_, info) => {
-          isDraggingRef.current = false;
-          setIsDragging(false);
           const swipe = info.offset.x;
-          const threshold = 80;
-          if (swipe < -threshold) goTo((current + 1) % featured.length);
-          else if (swipe > threshold) goTo((current - 1 + featured.length) % featured.length);
+          const velocity = info.velocity.x;
+          // Trigger on quick flick (velocity) or sufficient drag distance
+          if (swipe < -40 || velocity < -400) goTo((current + 1) % featured.length);
+          else if (swipe > 40 || velocity > 400) goTo((current - 1 + featured.length) % featured.length);
+          // Delay resetting isDragging so onClick handlers can check it
+          requestAnimationFrame(() => {
+            isDraggingRef.current = false;
+            setIsDragging(false);
+          });
+        }}
+        onClickCapture={(e) => {
+          if (isDraggingRef.current) {
+            e.stopPropagation();
+            e.preventDefault();
+          }
         }}
         className="relative h-full max-w-7xl mx-auto px-4 sm:px-6 flex items-end pb-24 sm:pb-28 cursor-grab active:cursor-grabbing"
       >
@@ -219,7 +206,7 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
               initial={{ opacity: 0, y: 30, filter: "blur(4px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={{ opacity: 0, y: -15, filter: "blur(4px)" }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
               className="max-w-2xl"
             >
               {/* Eyebrow label */}
@@ -271,10 +258,12 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
                 </span>
               </div>
 
-              {/* Synopsis */}
-              <p className="text-sm text-white/70 max-w-lg mt-4 line-clamp-2 leading-relaxed drop-shadow-sm font-medium text-balance">
-                {movie.synopsis}
-              </p>
+              {/* Synopsis — hidden when empty or "NA" */}
+              {isValidContent(movie.synopsis) && (
+                <p className="text-sm text-white/70 max-w-lg mt-4 line-clamp-2 leading-relaxed drop-shadow-sm font-medium text-balance">
+                  {movie.synopsis}
+                </p>
+              )}
 
               {/* CTAs */}
               <div className="flex gap-3 mt-7">
@@ -324,9 +313,9 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
                   sizes="100px"
                 />
                 {i === current && (
-                  <motion.div
-                    className="absolute bottom-0 left-0 right-0 h-1 bg-primary"
-                    style={{ scaleX: progress / 100, transformOrigin: "left" }}
+                  <div
+                    key={progressKey}
+                    className="absolute bottom-0 left-0 right-0 h-1 bg-primary origin-left hero-progress-bar"
                   />
                 )}
               </motion.button>
@@ -353,9 +342,9 @@ export function HeroCarousel({ movies }: { movies: Movie[] }) {
               >
                 <div className="absolute inset-0 bg-white/20 rounded-full" />
                 {i === current && (
-                  <motion.div
-                    className="absolute inset-0 bg-primary rounded-full"
-                    style={{ scaleX: progress / 100, transformOrigin: "left" }}
+                  <div
+                    key={progressKey}
+                    className="absolute inset-0 bg-primary rounded-full origin-left hero-progress-bar"
                   />
                 )}
               </button>

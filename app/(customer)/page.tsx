@@ -29,7 +29,7 @@ import { formatDate } from "@/lib/mock-data";
 import { isShowtimeUpcoming } from "@/lib/calendar-utils";
 import { useCinemaStore } from "@/lib/cinema-store";
 import { HeroCarousel } from "@/components/hero-carousel";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 // ── Animation variants ──
 
@@ -149,67 +149,82 @@ export default function HomePage() {
     history.replaceState(null, "", tab === "soon" ? "#coming-soon" : "#now-showing");
   }, []);
 
-  // Date picker – 7 days
-  const dates = Array.from({ length: 7 }, (_, i) => {
+  // Date picker – 7 days (memoized to avoid new array refs each render)
+  const dates = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
     return d.toISOString().split("T")[0];
-  });
+  }), []);
   const [selectedDate, setSelectedDate] = useState(dates[0]);
 
   // All now-showing movies (for hero carousel)
-  const allNowShowing = storeMovies.filter((m) =>
-    m.status === "now_showing" && storeShowtimes.some((st) => st.movieId === m.id)
-  );
-  const heroMovies = allNowShowing.slice(0, 4);
+  const { allNowShowing, heroMovies } = useMemo(() => {
+    const all = storeMovies.filter((m) =>
+      m.status === "now_showing" && storeShowtimes.some((st) => st.movieId === m.id)
+    );
+    return { allNowShowing: all, heroMovies: all.slice(0, 4) };
+  }, [storeMovies, storeShowtimes]);
 
   // Now-showing filtered by selectedDate (only movies with showtimes on that date)
-  const nowShowing = storeMovies.filter((m) => {
+  const nowShowing = useMemo(() => storeMovies.filter((m) => {
     if (m.status !== "now_showing") return false;
     return storeShowtimes.some(
       (st) => st.movieId === m.id && st.date === selectedDate && isShowtimeUpcoming(st.date, st.time)
     );
-  });
+  }), [storeMovies, storeShowtimes, selectedDate]);
 
-  const comingSoon = storeMovies
+  const comingSoon = useMemo(() => storeMovies
     .filter((m) => {
       if (m.status === "hidden") return false;
       if (m.status === "coming_soon") return true;
       return !storeShowtimes.some((st) => st.movieId === m.id);
     })
-    .sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0));
+    .sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0)),
+  [storeMovies, storeShowtimes, votes]);
 
-  // Month picker – next 6 months
-  const months = Array.from({ length: 6 }, (_, i) => {
+  // Month picker – next 6 months (memoized)
+  const months = useMemo(() => Array.from({ length: 6 }, (_, i) => {
     const d = new Date();
     d.setMonth(d.getMonth() + i);
     return { year: d.getFullYear(), month: d.getMonth() };
-  });
+  }), []);
   const [selectedMonth, setSelectedMonth] = useState(months[0]);
 
   // Filter coming soon movies by selected month
-  const comingSoonFiltered = comingSoon.filter((m) => {
+  const comingSoonFiltered = useMemo(() => comingSoon.filter((m) => {
     const rd = new Date(m.releaseDate);
     const now = new Date();
     const isCurrentMonth = selectedMonth.year === now.getFullYear() && selectedMonth.month === now.getMonth();
     if (isCurrentMonth) {
-      // Current month: show all movies up to end of current month (includes prior)
       const endOfMonth = new Date(selectedMonth.year, selectedMonth.month + 1, 0);
       return rd <= endOfMonth;
     }
-    // Future months: show only movies in that specific month
     return rd.getFullYear() === selectedMonth.year && rd.getMonth() === selectedMonth.month;
-  });
+  }), [comingSoon, selectedMonth]);
 
   // Top hyped movies (most voted) for coming soon
-  const topHyped = comingSoon
+  const topHyped = useMemo(() => comingSoon
     .filter((m) => (votes[m.id] || 0) > 0)
     .sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0))
-    .slice(0, 5);
+    .slice(0, 5),
+  [comingSoon, votes]);
 
   const comingSoonDisplay = comingSoonFiltered;
 
-  const displayMovies = activeTab === "now" ? nowShowing : comingSoonDisplay;
+  const displayMovies = useMemo(() =>
+    activeTab === "now" ? nowShowing : comingSoonDisplay,
+  [activeTab, nowShowing, comingSoonDisplay]);
+
+  // Pre-compute showtime lookup map: movieId-date → showtimes[]
+  const showtimesByMovieAndDate = useMemo(() => {
+    const map: Record<string, typeof storeShowtimes> = {};
+    for (const st of storeShowtimes) {
+      const key = `${st.movieId}-${st.date}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(st);
+    }
+    return map;
+  }, [storeShowtimes]);
 
   if (!hasHydrated) {
     return <HomepageLoadingSkeleton />;
@@ -390,7 +405,7 @@ export default function HomePage() {
                   movie={movie}
                   showtimes={
                     activeTab === "now"
-                      ? storeShowtimes.filter((s) => s.movieId === movie.id && s.date === selectedDate)
+                      ? (showtimesByMovieAndDate[`${movie.id}-${selectedDate}`] || [])
                       : []
                   }
                   index={i}
